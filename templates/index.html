@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>CPU Scheduling Simulator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Plotly.js from CDN -->
+  <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+  <!-- Pico.css for modern styling -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+  
+  <style>
+    :root {
+      --primary: #007bff;
+      --primary-hover: #0056b3;
+      --card-background-color: #ffffff;
+      --card-border-color: #e1e4e8;
+      --idle-color: rgba(158, 158, 158, 0.7);
+    }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--pico-secondary-background);
+    }
+    
+    main.container {
+        max-width: 1500px; /* Wider container */
+    }
+
+    .page-header { text-align: center; margin-bottom: 0rem; padding-bottom:0rem; }
+    .page-header h2 { margin-bottom: 0.05rem; }
+    
+    .main-grid { 
+      display: grid; 
+      grid-template-columns: 1fr 1.4fr; /* Give chart more space */
+      gap: 2.5rem; /* More gap */
+    }
+    @media (max-width: 1000px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+    
+    article { 
+      border: 1px solid var(--card-border-color); 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      padding: 1.5rem; /* More internal padding */
+    }
+    
+    form .grid { 
+      grid-template-columns: 2fr 1fr; 
+      gap: 1rem; 
+      margin-bottom: 1.5rem;
+    }
+    form button[type="submit"] { width: 100%; margin-top: 1rem; }
+    
+    #process-table { margin-bottom: 1rem; }
+    #process-table th { color: var(--secondary); }
+    
+    /* FIX for distorted input boxes */
+    #process-table input[type="text"] {
+      margin-bottom: 0;
+      height: 40px;
+      width: 80px; 
+    }
+    #process-table input[type="number"] {
+      margin-bottom: 0;
+      height: 40px;
+      width: 85px; /* Gives number and spinners space */
+    }
+    
+    #process-table .action-cell { width: 60px; text-align: center; }
+    #process-table .action-cell button { width: 36px; height: 36px; padding: 0; font-weight: bold; background-color: #f44336; border-color: #f44336; color: white; }
+    #process-table .action-cell button:hover { background-color: #d32f2f; border-color: #d32f2f; }
+    
+    #add-process-btn { 
+      background-color: var(--secondary-background); 
+      border-color: var(--secondary-border); 
+      color: var(--secondary);
+      margin-bottom: 2rem;
+    }
+    #add-process-btn:hover { background-color: var(--secondary-hover-background); border-color: var(--secondary-hover-border); }
+    
+    figure { margin: 0; }
+    table { font-size: 0.9rem; }
+    
+    #chart { min-height: 300px; width: 100%; }
+    .chart-placeholder { display: grid; place-items: center; min-height: 300px; border: 2px dashed var(--card-border-color); border-radius: var(--border-radius); color: var(--secondary); }
+    .chart-controls { display: flex; justify-content: space-between; align-items: center; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="page-header">
+      <h2>CPU Scheduling Simulator</h2>
+    </header>
+
+    <div class="main-grid">
+      
+      <!-- === Left Column: Form & Metrics === -->
+      <article>
+        <h4 style="margin-top:0;">Simulator Controls</h4>
+        <form method="post" action="{{ url_for('simulate') }}" id="simulator-form">
+          
+          <input type="hidden" name="processes" id="processes-hidden-input">
+          
+          <label for="process-table">Processes</label>
+          <figure style="overflow-x: auto;">
+            <table id="process-table">
+              <thead>
+                <tr>
+                  <th>PID</th>
+                  <th>Arrival</th>
+                  <th>Burst</th>
+                  <th>Priority</th>
+                  <th class="action-cell"></th>
+                </tr>
+              </thead>
+              <tbody id="process-table-body">
+              </tbody>
+            </table>
+          </figure>
+          <button type="button" id="add-process-btn" class="outline secondary small">+ Add Process</button>
+
+          <div class="grid">
+            <div>
+              <label for="algorithm-select">Algorithm</label>
+              <select name="algorithm" id="algorithm-select">
+                <option value="fcfs" {% if chosen_algorithm=='fcfs' %}selected{% endif %}>FCFS</option>
+                <option value="sjf-np" {% if chosen_algorithm=='sjf-np' %}selected{% endif %}>SJF (Non-preemptive)</option>
+                <option value="sjf-p" {% if chosen_algorithm=='sjf-p' %}selected{% endif %}>SJF (Preemptive)</option>
+                <option value="rr" {% if chosen_algorithm=='rr' %}selected{% endif %}>Round Robin</option>
+                <option value="priority-np" {% if chosen_algorithm=='priority-np' %}selected{% endif %}>Priority (Non-preemptive)</option>
+                <option value="priority-p" {% if chosen_algorithm=='priority-p' %}selected{% endif %}>Priority (Preemptive)</option>
+              </select>
+            </div>
+            <div id="quantum-group">
+              <label for="quantum">Time Quantum</label>
+              <input type="number" name="quantum" id="quantum" value="{{ quantum if quantum is defined else 2 }}" min="1">
+            </div>
+          </div>
+
+          <button type="submit">Simulate</button>
+        </form>
+
+        <!-- === Results Table === -->
+        {% if rows is defined and rows %}
+        <hr style="margin-top: 2rem; margin-bottom: 2rem;">
+        <h4>Process Table</h4>
+        <figure style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>PID</th>
+                <th>Arrival</th>
+                <th>Burst</th>
+                <th>Priority</th>
+                <th>Start</th>
+                <th>Completion</th>
+                <th>TAT</th>
+                <th>WT</th>
+                <th>RT</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for r in rows %}
+              <tr>
+                <td><strong>{{ r.pid }}</strong></td>
+                <td>{{ r.arrival }}</td>
+                <td>{{ r.burst }}</td>
+                <td>{{ r.priority }}</td>
+                <td>{% if r.start is not none %}{{ r.start }}{% else %}-{% endif %}</td>
+                <td>{% if r.completion is not none %}{{ r.completion }}{% else %}-{% endif %}</td>
+                <td>{% if r.TAT is not none %}{{ r.TAT }}{% else %}-{% endif %}</td>
+                <td>{% if r.WT is not none %}{{ r.WT }}{% else %}-{% endif %}</td>
+                <td>{% if r.RT is not none %}{{ r.RT }}{% else %}-{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </figure>
+        <p style="margin-top: 1rem;">
+          <strong>Averages</strong> — 
+          TAT: <strong>{{ avgs.avg_tat|round(3) if avgs.avg_tat is not none else '-' }}</strong>,
+          WT: <strong>{{ avgs.avg_wt|round(3) if avgs.avg_wt is not none else '-' }}</strong>,
+          RT: <strong>{{ avgs.avg_rt|round(3) if avgs.avg_rt is not none else '-' }}</strong>
+        </p>
+        {% endif %}
+      </article>
+
+      <!-- === Right Column: Gantt Chart === -->
+      <article>
+        <div class="chart-controls">
+          <h4 style="margin-top:0; margin-bottom: 0;">Gantt Chart</h4>
+        </div>
+        <hr style="margin-top: 1rem; margin-bottom: 1.5rem;">
+        <div id="chart"></div>
+      </article>
+
+    </div>
+  </main>
+
+  <script>
+    // --- Store example data from Flask (safer with tojson) ---
+    const initialProcessData = {{ example|tojson|safe }};
+
+    // --- Process Input Table JS ---
+    // This code block runs when the page is fully loaded.
+    document.addEventListener('DOMContentLoaded', function() {
+      const form = document.getElementById('simulator-form');
+      const tableBody = document.getElementById('process-table-body');
+      const addBtn = document.getElementById('add-process-btn');
+      const hiddenInput = document.getElementById('processes-hidden-input');
+
+      // Creates a new row in the process table
+      function addProcessRow(pid = '', arrival = '', burst = '', priority = '0') {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><input type="text" value="${pid}" placeholder="PID" required></td>
+          <td><input type="number" value="${arrival}"  min="0" required></td>
+          <td><input type="number" value="${burst}"  min="1" required></td>
+          <td><input type="number" value="${priority}" min="0" required></td>
+          <td class="action-cell"><button type="button" class="remove-row" aria-label="Remove row">&times;</button></td>
+        `;
+        // Add click event to the new 'remove' button
+        row.querySelector('.remove-row').addEventListener('click', function() {
+          row.remove();
+        });
+        tableBody.appendChild(row);
+      }
+
+      // Loads the initial data (from Flask) into the table
+      function loadInitialData() {
+        if (!initialProcessData || initialProcessData.trim() === '') {
+          addProcessRow('P1', '0', '8', '2'); // Add one default if none exists
+          return;
+        }
+        const lines = initialProcessData.trim().split('\n');
+        lines.forEach(line => {
+          if (line.trim() === '') return;
+          const parts = line.split(',');
+          if (parts.length >= 3) {
+            const [pid, arrival, burst, priority] = parts;
+            addProcessRow(pid, arrival, burst, priority || '0');
+          }
+        });
+      }
+
+      // Converts table data to CSV format for the hidden input
+      function syncTableToHiddenInput() {
+        const rows = tableBody.querySelectorAll('tr');
+        const csvLines = [];
+        let isValid = true;
+        rows.forEach(row => {
+          const inputs = row.querySelectorAll('input');
+          const pid = inputs[0].value.trim();
+          const arrival = inputs[1].value.trim();
+          const burst = inputs[2].value.trim();
+          const priority = inputs[3].value.trim();
+          
+          if (!pid || arrival === '' || burst === '') {
+             isValid = false;
+             inputs.forEach(inp => { if(!inp.value) inp.focus(); });
+             return;
+          }
+          csvLines.push(`${pid},${arrival},${burst},${priority || '0'}`);
+        });
+        
+        if (!isValid) {
+          alert('Please make sure all processes have at least a PID, Arrival, and Burst time.');
+          return false;
+        }
+        if (csvLines.length === 0) {
+          alert('Please add at least one process.');
+          return false;
+        }
+        
+        hiddenInput.value = csvLines.join('\n');
+        return true;
+      }
+
+      // --- Attach Event Listeners ---
+      form.addEventListener('submit', function(e) {
+        if (!syncTableToHiddenInput()) {
+          e.preventDefault(); // Stop submission if data is invalid
+        }
+      });
+
+      addBtn.addEventListener('click', function() {
+        const rowCount = tableBody.querySelectorAll('tr').length;
+        addProcessRow(`P${rowCount + 1}`, '', '', '0');
+      });
+
+      // Load the table as soon as the page is ready
+      loadInitialData();
+    });
+
+    // --- Conditional Time Quantum JS ---
+    const algorithmSelect = document.getElementById('algorithm-select');
+    const quantumGroup = document.getElementById('quantum-group');
+    function toggleQuantumVisibility() {
+      quantumGroup.style.display = (algorithmSelect.value === 'rr') ? 'block' : 'none';
+    }
+    toggleQuantumVisibility();
+    algorithmSelect.addEventListener('change', toggleQuantumVisibility);
+
+    
+    // --- Plotly Gantt Chart Code (with Animation) ---
+    var gantt_json = {{ gantt_json|safe if gantt_json is defined else 'null' }};
+
+    function drawGantt(gantt) {
+      var y_pids = [];
+      gantt.forEach(seg => {
+        if (y_pids.indexOf(seg.pid) === -1) {
+          y_pids.push(seg.pid);
+        }
+      });
+      
+      y_pids.sort((a, b) => {
+        if (a === 'idle') return -1;
+        if (b === 'idle') return 1;
+        let numA = parseInt(a.replace(/\D/g, '')) || 0;
+        let numB = parseInt(b.replace(/\D/g, '')) || 0;
+        return numA - numB;
+      });
+
+      var layout = {
+        barmode: 'stack',
+        title: '',
+        xaxis: { title: 'Time', automargin: true, gridcolor: '#f0f0f0' },
+        yaxis: { type: 'category', categoryorder: 'array', categoryarray: y_pids.reverse(), automargin: true },
+        height: 120 + y_pids.length * 50, 
+        bargap: 0.3,
+        margin: {l:80, r:20, t:20, b:40},
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)'
+      };
+      
+      var config = {responsive: true, displaylogo: false};
+
+      // Draw instantly
+      var traces = [];
+      for (var i=0; i<gantt.length; i++){
+        var seg = gantt[i];
+        traces.push({
+          x: [seg.end - seg.start],
+          y: [seg.pid],
+          base: [seg.start],
+          type: 'bar',
+          orientation: 'h',
+          name: seg.pid, // JAVASCRIPT BUG FIX: Was 'seg..pid'
+          hovertemplate: '<b>' + seg.pid + '</b><br>Start: ' + seg.start + '<br>End: ' + seg.end + '<br>Duration: ' + (seg.end - seg.start) + '<extra></extra>',
+          showlegend: false,
+          marker: { color: seg.pid === 'idle' ? 'var(--idle-color)' : 'var(--primary)' }
+        });
+      }
+      Plotly.newPlot('chart', traces, layout, config);
+    }
+
+    // --- Main drawing logic ---
+    if (gantt_json && gantt_json.length > 0) {
+      // Only draw if data exists
+      drawGantt(gantt_json);
+    } else {
+      // Show placeholder
+      document.getElementById('chart').innerHTML = "<div class='chart-placeholder'><p>Run a simulation to see the interactive Gantt chart here.</p></div>";
+    }
+  </script>
+</body>
+</html>
