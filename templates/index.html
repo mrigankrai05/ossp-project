@@ -177,10 +177,10 @@
           </table>
         </figure>
         <p style="margin-top: 1rem;">
-          <strong>Averages</strong> — 
-          TAT: <strong>{{ avgs.avg_tat|round(3) if avgs.avg_tat is not none else '-' }}</strong>,
-          WT: <strong>{{ avgs.avg_wt|round(3) if avgs.avg_wt is not none else '-' }}</strong>,
-          RT: <strong>{{ avgs.avg_rt|round(3) if avgs.avg_rt is not none else '-' }}</strong>
+          <strong>Averages</strong><br>
+          Turn Around Time: <strong>{{ avgs.avg_tat|round(3) if avgs.avg_tat is not none else '-' }}</strong><hr>
+          Wait Time: <strong>{{ avgs.avg_wt|round(3) if avgs.avg_wt is not none else '-' }}</strong><hr>
+          Response Time: <strong>{{ avgs.avg_rt|round(3) if avgs.avg_rt is not none else '-' }}</strong>
         </p>
         {% endif %}
       </article>
